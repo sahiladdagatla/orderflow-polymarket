@@ -1,12 +1,5 @@
-.env 
-code .gitignore
-```
-
-Delete whatever is in there and paste exactly this:
-```
 .env
 __pycache__/
 *.pyc
 *.pyo
 .DS_Store
-```
