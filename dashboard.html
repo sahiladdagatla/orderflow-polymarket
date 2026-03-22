@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Orderflow — Polymarket Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #050508;
+    --bg2:      #0c0c12;
+    --bg3:      #13131c;
+    --border:   #1e1e2e;
+    --border2:  #2a2a3e;
+    --text:     #e8e6f0;
+    --muted:    #6b697a;
+    --accent:   #7cfc8a;
+    --accent2:  #4ade80;
+    --red:      #ff4d6a;
+    --amber:    #fbbf24;
+    --blue:     #60a5fa;
+    --purple:   #a78bfa;
+    --mono:     'IBM Plex Mono', monospace;
+    --display:  'Syne', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-dot {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(124,252,138,0.4); }
+    50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(124,252,138,0); }
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: rgba(124,252,138,0.08);
+    border: 1px solid rgba(124,252,138,0.2);
+    border-radius: 20px;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+
+  .scan-btn {
+    padding: 8px 18px;
+    background: var(--accent);
+    color: #050508;
+    border: none;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: all 0.15s;
+  }
+
+  .scan-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+  .scan-btn:active { transform: translateY(0); }
+  .scan-btn.scanning { background: var(--bg3); color: var(--muted); cursor: not-allowed; }
+
+  /* Layout */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto 1fr;
+    gap: 1px;
+    background: var(--border);
+    min-height: calc(100vh - 61px);
+  }
+
+  /* Stats bar */
+  .stats-bar {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat {
+    padding: 16px 24px;
+    border-right: 1px solid var(--border);
+  }
+
+  .stat:last-child { border-right: none; }
+
+  .stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -1px;
+  }
+
+  .stat-value.green { color: var(--accent); }
+  .stat-value.red   { color: var(--red); }
+  .stat-value.amber { color: var(--amber); }
+
+  .stat-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  /* Main panel */
+  .main-panel {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Panel header */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+
+  .panel-title {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .panel-tag {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  .tag-live { background: rgba(124,252,138,0.1); color: var(--accent); border: 1px solid rgba(124,252,138,0.2); }
+  .tag-count { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Chart area */
+  .chart-area {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    height: 200px;
+  }
+
+  /* Markets table */
+  .markets-table {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .table-head {
+    display: grid;
+    grid-template-columns: 1fr 70px 70px 80px 90px 110px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: var(--bg2);
+    position: sticky;
+    top: 0;
+  }
+
+  .market-row {
+    display: grid;
+    grid-template-columns: 1fr 70px 70px 80px 90px 110px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    transition: background 0.1s;
+    cursor: pointer;
+    animation: rowIn 0.3s ease forwards;
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  @keyframes rowIn {
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .market-row:hover { background: var(--bg3); }
+
+  .market-question {
+    font-size: 12px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 12px;
+  }
+
+  .market-prob {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--blue);
+  }
+
+  .market-ai {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .edge-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-align: center;
+  }
+
+  .edge-pos { background: rgba(124,252,138,0.12); color: var(--accent); }
+  .edge-neg { background: rgba(255,77,106,0.12); color: var(--red); }
+  .edge-none { background: var(--bg3); color: var(--muted); }
+
+  .action-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    text-align: center;
+  }
+
+  .buy-yes { background: rgba(124,252,138,0.15); color: var(--accent); border: 1px solid rgba(124,252,138,0.3); }
+  .buy-no  { background: rgba(255,77,106,0.15); color: var(--red); border: 1px solid rgba(255,77,106,0.3); }
+  .no-trade { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+
+  .conf-high   { background: rgba(124,252,138,0.1); color: var(--accent); border: 1px solid rgba(124,252,138,0.2); }
+  .conf-medium { background: rgba(251,191,36,0.1);  color: var(--amber);  border: 1px solid rgba(251,191,36,0.2); }
+  .conf-low    { background: rgba(107,105,122,0.15); color: var(--muted);  border: 1px solid var(--border); }
+
+  .decision-take { background: rgba(124,252,138,0.12); color: var(--accent); border: 1px solid rgba(124,252,138,0.3); font-weight: 600; }
+  .decision-skip { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Side panel */
+  .side-panel {
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Signal feed */
+  .signal-feed {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  .signal-card {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+    animation: slideIn 0.4s ease forwards;
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  @keyframes slideIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .signal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .signal-time {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .signal-question {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+    margin-bottom: 10px;
+  }
+
+  .signal-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
+  .signal-pill {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+  }
+
+  .pill-market { background: rgba(96,165,250,0.12); color: var(--blue); }
+  .pill-ai     { background: rgba(167,139,250,0.12); color: var(--purple); }
+  .pill-edge-p { background: rgba(124,252,138,0.12); color: var(--accent); }
+  .pill-edge-n { background: rgba(255,77,106,0.12); color: var(--red); }
+
+  .signal-reasoning {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+    font-style: italic;
+    border-left: 2px solid var(--border2);
+    padding-left: 8px;
+    margin-top: 8px;
+  }
+
+  /* Trade panel */
+  .trade-panel {
+    border-top: 1px solid var(--border);
+    padding: 16px 18px;
+    background: var(--bg2);
+  }
+
+  .trade-title {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .trade-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .trade-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .trade-input:focus { border-color: var(--accent); }
+
+  .trade-select {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .trade-btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .btn-yes {
+    padding: 10px;
+    background: rgba(124,252,138,0.15);
+    border: 1px solid rgba(124,252,138,0.3);
+    border-radius: 6px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+
+  .btn-no {
+    padding: 10px;
+    background: rgba(255,77,106,0.15);
+    border: 1px solid rgba(255,77,106,0.3);
+    border-radius: 6px;
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+
+  .btn-yes:hover { background: rgba(124,252,138,0.25); }
+  .btn-no:hover  { background: rgba(255,77,106,0.25); }
+
+  .paper-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(251,191,36,0.1);
+    border: 1px solid rgba(251,191,36,0.2);
+    border-radius: 4px;
+    color: var(--amber);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text);
+    z-index: 1000;
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.3s;
+    max-width: 320px;
+  }
+
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-color: rgba(124,252,138,0.3); }
+  .toast.error   { border-color: rgba(255,77,106,0.3); }
+
+  /* Empty state */
+  .empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 2;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* Loading bar */
+  .loading-bar {
+    height: 2px;
+    background: var(--border);
+    overflow: hidden;
+    display: none;
+  }
+
+  .loading-bar.active { display: block; }
+
+  .loading-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.3s;
+    animation: loading 2s ease-in-out infinite;
+  }
+
+  @keyframes loading {
+    0%   { width: 0%; margin-left: 0%; }
+    50%  { width: 60%; margin-left: 20%; }
+    100% { width: 0%; margin-left: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    ORDERFLOW
+  </div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      <span id="status-text">READY</span>
+    </div>
+    <button class="scan-btn" id="scan-btn" onclick="runScan()">RUN SCAN</button>
+  </div>
+</header>
+
+<div class="loading-bar" id="loading-bar">
+  <div class="loading-fill"></div>
+</div>
+
+<div class="layout">
+
+  <!-- Stats bar -->
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-label">Markets scanned</div>
+      <div class="stat-value" id="stat-markets">0</div>
+      <div class="stat-sub">this session</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Signals found</div>
+      <div class="stat-value green" id="stat-signals">0</div>
+      <div class="stat-sub">edge &gt; 8%</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Avg edge</div>
+      <div class="stat-value amber" id="stat-edge">—</div>
+      <div class="stat-sub">on signals</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Paper P&amp;L</div>
+      <div class="stat-value green" id="stat-pnl">+$0</div>
+      <div class="stat-sub">simulated</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Last scan</div>
+      <div class="stat-value" id="stat-time" style="font-size:14px">—</div>
+      <div class="stat-sub">scan time</div>
+    </div>
+  </div>
+
+  <!-- Main panel: market scanner -->
+  <div class="main-panel">
+    <div class="panel-header">
+      <span class="panel-title">Market Scanner</span>
+      <span class="panel-tag tag-count" id="market-count">0 markets</span>
+    </div>
+
+    <div class="chart-area">
+      <canvas id="edgeChart"></canvas>
+    </div>
+
+    <div class="table-head">
+      <span>Question</span>
+      <span>Market</span>
+      <span>AI est.</span>
+      <span>Edge</span>
+      <span>Confidence</span>
+      <span>Decision</span>
+    </div>
+
+    <div class="markets-table" id="markets-table">
+      <div class="empty">
+        Run a scan to load live markets from Polymarket.<br/>
+        Your AI will estimate the true probability for each one.
+      </div>
+    </div>
+  </div>
+
+  <!-- Side panel: signal feed + trade -->
+  <div class="side-panel">
+    <div class="panel-header">
+      <span class="panel-title">Signal Feed</span>
+      <span class="panel-tag tag-live">LIVE</span>
+    </div>
+
+    <div class="signal-feed" id="signal-feed">
+      <div class="empty">
+        Signals will appear here when the AI detects<br/>
+        edge vs. the market price.
+      </div>
+    </div>
+
+    <div class="trade-panel">
+      <div class="trade-title">Paper Trade</div>
+      <div class="paper-badge">PAPER MODE</div>
+      <div class="trade-input-row">
+        <input class="trade-input" id="trade-market" placeholder="Market question..." readonly/>
+      </div>
+      <div class="trade-input-row">
+        <input class="trade-input" id="trade-size" type="number" placeholder="Size (USDC)" value="50"/>
+        <select class="trade-select" id="trade-side">
+          <option value="YES">YES</option>
+          <option value="NO">NO</option>
+        </select>
+      </div>
+      <div class="trade-btn-row">
+        <button class="btn-yes" onclick="placeTrade('YES')">BUY YES</button>
+        <button class="btn-no"  onclick="placeTrade('NO')">BUY NO</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = 'http://localhost:8000';
+
+let allMarkets = [];
+let allSignals = [];
+let paperTrades = [];
+let paperPnL = 0;
+let totalScanned = 0;
+let chart;
+
+// ── Chart setup ──────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById('edgeChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Edge (%)',
+        data: [],
+        backgroundColor: [],
+        borderRadius: 4,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `Edge: ${ctx.raw > 0 ? '+' : ''}${ctx.raw.toFixed(1)}%`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#6b697a', font: { family: 'IBM Plex Mono', size: 10 }, maxRotation: 30 },
+          grid: { color: '#1e1e2e' }
+        },
+        y: {
+          ticks: { color: '#6b697a', font: { family: 'IBM Plex Mono', size: 10 }, callback: v => v + '%' },
+          grid: { color: '#1e1e2e' },
+          border: { color: '#1e1e2e' }
+        }
+      }
+    }
+  });
+}
+
+function updateChart(markets) {
+  const top12 = markets
+    .filter(m => m.edge !== undefined)
+    .sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge))
+    .slice(0, 12);
+
+  chart.data.labels = top12.map(m => m.question.slice(0, 20) + '…');
+  chart.data.datasets[0].data = top12.map(m => +(m.edge * 100).toFixed(1));
+  chart.data.datasets[0].backgroundColor = top12.map(m =>
+    m.edge > 0 ? 'rgba(124,252,138,0.5)' : 'rgba(255,77,106,0.5)'
+  );
+  chart.update();
+}
+
+// ── Scan ─────────────────────────────────────────────────
+async function runScan() {
+  const btn = document.getElementById('scan-btn');
+  btn.classList.add('scanning');
+  btn.textContent = 'SCANNING...';
+  document.getElementById('status-text').textContent = 'SCANNING';
+  document.getElementById('loading-bar').classList.add('active');
+
+  try {
+    const res = await fetch(`${API_BASE}/scan`, { method: 'POST' });
+    const data = await res.json();
+    processResults(data);
+  } catch(e) {
+    // Demo mode — use realistic mock data when backend not running
+    processResults(getMockData());
+  }
+
+  btn.classList.remove('scanning');
+  btn.textContent = 'RUN SCAN';
+  document.getElementById('status-text').textContent = 'LIVE';
+  document.getElementById('loading-bar').classList.remove('active');
+}
+
+function processResults(data) {
+  allMarkets = data.markets || [];
+  const signals = allMarkets.filter(m => m.should_trade);
+
+  totalScanned += allMarkets.length;
+  document.getElementById('stat-markets').textContent = totalScanned;
+  document.getElementById('stat-signals').textContent = allSignals.length + signals.length;
+  document.getElementById('stat-time').textContent = new Date().toLocaleTimeString();
+  document.getElementById('market-count').textContent = allMarkets.length + ' markets';
+
+  const edges = signals.map(s => Math.abs(s.edge));
+  if (edges.length) {
+    const avg = edges.reduce((a,b) => a+b, 0) / edges.length;
+    document.getElementById('stat-edge').textContent = '+' + (avg * 100).toFixed(1) + '%';
+  }
+
+  renderMarkets(allMarkets);
+  signals.forEach(s => addSignal(s));
+  allSignals.push(...signals);
+  updateChart(allMarkets);
+}
+
+// ── Render markets ────────────────────────────────────────
+function renderMarkets(markets) {
+  const el = document.getElementById('markets-table');
+  if (!markets.length) {
+    el.innerHTML = '<div class="empty">No markets loaded.</div>';
+    return;
+  }
+
+  el.innerHTML = markets.map((m, i) => {
+    const edge = m.edge !== undefined ? m.edge : 0;
+    const edgeStr = (edge >= 0 ? '+' : '') + (edge * 100).toFixed(1) + '%';
+    const edgeClass = m.should_trade ? (edge > 0 ? 'edge-pos' : 'edge-neg') : 'edge-none';
+    const aiColor = m.ai_prob > m.market_prob ? 'color:var(--accent)' : 'color:var(--red)';
+
+    const conf = m.confidence || 'low';
+    const confClass = conf === 'high' ? 'conf-high' : conf === 'medium' ? 'conf-medium' : 'conf-low';
+    const confLabel = conf.toUpperCase();
+
+    let action = 'NO TRADE', actionClass = 'no-trade';
+    if (m.should_trade) {
+      action = m.direction;
+      actionClass = m.direction === 'BUY YES' ? 'buy-yes' : 'buy-no';
+    }
+
+    const decisionClass = m.should_trade ? 'decision-take' : 'decision-skip';
+    const decisionLabel = m.should_trade ? 'TAKE TRADE' : 'SKIP';
+
+    return `<div class="market-row" style="animation-delay:${i*30}ms" onclick="selectMarket(${i})">
+      <span class="market-question" title="${m.question}">${m.question}</span>
+      <span class="market-prob">${(m.market_prob*100).toFixed(0)}%</span>
+      <span class="market-ai" style="${aiColor}">${m.ai_prob !== undefined ? (m.ai_prob*100).toFixed(0)+'%' : '—'}</span>
+      <span class="edge-badge ${edgeClass}">${m.ai_prob !== undefined ? edgeStr : '—'}</span>
+      <span class="action-badge ${confClass}">${confLabel}</span>
+      <span class="action-badge ${decisionClass}">${m.should_trade ? action + ' ✓' : 'SKIP'}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Add signal to feed ────────────────────────────────────
+function addSignal(s) {
+  const feed = document.getElementById('signal-feed');
+  if (feed.querySelector('.empty')) feed.innerHTML = '';
+
+  const edge = s.edge * 100;
+  const edgeStr = (edge >= 0 ? '+' : '') + edge.toFixed(1) + '%';
+  const edgeClass = edge > 0 ? 'pill-edge-p' : 'pill-edge-n';
+  const actionClass = s.direction === 'BUY YES' ? 'buy-yes' : 'buy-no';
+  const time = new Date().toLocaleTimeString();
+
+  const card = document.createElement('div');
+  card.className = 'signal-card';
+  const conf = s.confidence || 'low';
+  const confClass = conf === 'high' ? 'conf-high' : conf === 'medium' ? 'conf-medium' : 'conf-low';
+  card.innerHTML = `
+    <div class="signal-header">
+      <span class="action-badge ${actionClass}">${s.direction}</span>
+      <span class="signal-time">${time}</span>
+    </div>
+    <div class="signal-question">${s.question}</div>
+    <div class="signal-row">
+      <span class="signal-pill pill-market">MKT ${(s.market_prob*100).toFixed(0)}%</span>
+      <span class="signal-pill pill-ai">AI ${(s.ai_prob*100).toFixed(0)}%</span>
+      <span class="signal-pill ${edgeClass}">EDGE ${edgeStr}</span>
+      <span class="signal-pill ${confClass}">${conf.toUpperCase()} CONF</span>
+    </div>
+    <div style="margin-top:8px;">
+      <span class="action-badge decision-take" style="font-size:10px;padding:3px 10px;">TAKE TRADE</span>
+    </div>
+    ${s.reasoning ? `<div class="signal-reasoning">${s.reasoning}</div>` : ''}
+  `;
+  feed.prepend(card);
+}
+
+// ── Select market for trading ─────────────────────────────
+function selectMarket(i) {
+  const m = allMarkets[i];
+  document.getElementById('trade-market').value = m.question;
+  if (m.direction === 'BUY NO') {
+    document.getElementById('trade-side').value = 'NO';
+  } else {
+    document.getElementById('trade-side').value = 'YES';
+  }
+}
+
+// ── Paper trade ───────────────────────────────────────────
+function placeTrade(side) {
+  const market = document.getElementById('trade-market').value;
+  const size = parseFloat(document.getElementById('trade-size').value) || 50;
+
+  if (!market) { showToast('Select a market first', 'error'); return; }
+
+  const m = allMarkets.find(x => x.question === market);
+  const simPnL = m ? (Math.random() > 0.4 ? size * 0.15 : -size * 0.08) : 0;
+  paperPnL += simPnL;
+
+  paperTrades.push({ market, side, size, time: new Date().toLocaleTimeString(), pnl: simPnL });
+
+  const pnlEl = document.getElementById('stat-pnl');
+  pnlEl.textContent = (paperPnL >= 0 ? '+$' : '-$') + Math.abs(paperPnL).toFixed(2);
+  pnlEl.className = 'stat-value ' + (paperPnL >= 0 ? 'green' : 'red');
+
+  showToast(`Paper trade placed: BUY ${side} — $${size} USDC on "${market.slice(0,40)}..."`, 'success');
+}
+
+// ── Toast ─────────────────────────────────────────────────
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type + ' show';
+  setTimeout(() => { t.className = 'toast ' + type; }, 3500);
+}
+
+// ── Mock data (demo when backend not running) ─────────────
+function getMockData() {
+  return { markets: [
+    { question: "New Rihanna Album before GTA VI?", market_prob: 0.56, ai_prob: 0.65, edge: 0.09, confidence: "medium", direction: "BUY YES", should_trade: true, reasoning: "Rihanna has been teasing new music consistently. Market underprices this." },
+    { question: "Will Jesus Christ return before GTA VI?", market_prob: 0.48, ai_prob: 0.02, edge: -0.46, confidence: "high", direction: "BUY NO", should_trade: true, reasoning: "No credible evidence supports this. Market severely mispriced." },
+    { question: "Will China invade Taiwan before GTA VI?", market_prob: 0.52, ai_prob: 0.35, edge: -0.17, confidence: "high", direction: "BUY NO", should_trade: true, reasoning: "Geopolitical analysts broadly assign lower probability. Market overpriced." },
+    { question: "Will Bitcoin hit $1M before GTA VI?", market_prob: 0.49, ai_prob: 0.20, edge: -0.29, confidence: "high", direction: "BUY NO", should_trade: true, reasoning: "Requires 10x from current levels in a compressed timeframe. Unlikely." },
+    { question: "Russia-Ukraine Ceasefire before GTA VI?", market_prob: 0.55, ai_prob: 0.58, edge: 0.03, confidence: "low", direction: "BUY YES", should_trade: false, reasoning: null },
+    { question: "New Playboi Carti Album before GTA VI?", market_prob: 0.70, ai_prob: 0.65, edge: -0.05, confidence: "low", direction: "BUY NO", should_trade: false, reasoning: null },
+    { question: "Trump out as President before GTA VI?", market_prob: 0.52, ai_prob: 0.55, edge: 0.03, confidence: "low", direction: "BUY YES", should_trade: false, reasoning: null },
+    { question: "Will Harvey Weinstein get no prison time?", market_prob: 0.31, ai_prob: 0.05, edge: -0.26, confidence: "high", direction: "BUY NO", should_trade: true, reasoning: "Prior conviction history strongly indicates prison time. Market overpriced." },
+    { question: "BitBoy convicted?", market_prob: 0.29, ai_prob: 0.25, edge: -0.04, confidence: "low", direction: "BUY NO", should_trade: false, reasoning: null },
+    { question: "Fed cuts rates June 2026?", market_prob: 0.68, ai_prob: 0.72, edge: 0.04, confidence: "medium", direction: "BUY YES", should_trade: false, reasoning: null },
+  ]};
+}
+
+// ── Init ──────────────────────────────────────────────────
+initChart();
+</script>
+</body>
+</html>
